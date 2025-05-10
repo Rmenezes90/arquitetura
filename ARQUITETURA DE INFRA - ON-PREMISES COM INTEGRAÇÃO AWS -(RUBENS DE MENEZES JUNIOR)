@@ -1,0 +1,245 @@
+
+
+ARQUITETURA DE INFRA - ON-PREMISES COM INTEGRAÇÃO AWS -(RUBENS DE MENEZES JUNIOR)
+
+1. Dimensionamento de Recursos
+
+On-Premises
+
+Web Server (Front-End) - 4 máquinas
+
+CPU: 8 vCPU (Intel Xeon ou AMD EPYC equivalentes)
+
+Memória: 32 GB RAM
+
+Armazenamento: 200 GB SSD local
+
+Sistema Operacional: Windows Server 2019
+
+
+Aplicação (Back-End) - 4 máquinas
+
+CPU: 16 vCPU
+
+Memória: 64 GB RAM
+
+Armazenamento: 500 GB SSD local (logs + arquivos temporários)
+
+Sistema Operacional: Windows Server 2019
+
+Justificativa: Processamento de lógicas de negócio pesadas, chamadas à API, integração com microsserviços e banco local.
+
+
+Banco de Dados SQL Server
+
+CPU: 16 vCPU
+
+Memória: 128 GB RAM
+
+Armazenamento: 2 TB SSD local + redundância (RAID)
+
+Justificativa: Armazena dados críticos da operação com alta frequência de leitura/escrita.
+
+
+
+AWS – Microsserviços
+
+Amazon ECS (Fargate) – APIs xpto-api-controle-lancamento e xpto-api-consolidado
+
+Task Definition:
+
+CPU: 1024 units (1 vCPU)
+
+Memory: 2048 MiB (2 GB)
+
+Storage: S3 para saída de dados + logs em CloudWatch
+
+
+Justificativa: Isolamento, escalabilidade e simplicidade sem precisar gerenciar servidores.
+
+
+Amazon RDS (MySQL)
+
+Tipo: db.m6i.large
+
+CPU: 2 vCPU
+
+RAM: 8 GB
+
+Armazenamento: 100 GB SSD (gp3), IOPS provisionado
+
+
+Justificativa: Banco dedicado para dados de microserviços com alta disponibilidade (Multi-AZ)
+
+
+Amazon S3
+
+Armazenamento de arquivos consolidados
+
+Classe: S3 Standard + versionamento + criptografia SSE-S3
+
+
+
+
+---
+
+2. Metodologia de FinOps
+
+On-premises: uso de licenças corporativas (Windows, SQL Server), hardware já amortizado.
+
+AWS:
+
+ECS Fargate: pago por uso, ideal para workloads irregulares.
+
+RDS e S3:
+
+Monitoramento via CloudWatch para desligar instâncias subutilizadas.
+
+Alerts para gastos via AWS Budgets.
+
+Uso de tags para rastreamento por projeto/time.
+
+Custo otimizado com reserva de instância RDS se padrão for identificado.
+
+
+
+Relatórios semanais em Dynatrace (ou CloudWatch + Cost Explorer) para análise contínua.
+
+
+
+---
+
+3. Diagrama de Topologia
+
+Já fornecido por você. Para documentação, sugerimos redesenhar usando Lucidchart, Draw.io ou Diagrams.net com:
+
+Blocos distintos para: DMZ, Aplicação, Autenticação, Microsserviços, RDS, S3
+
+Cores diferentes para recursos on-premises e AWS
+
+Indicação clara de conexões TCP, VPC, Direct Connect e ALB
+
+
+
+---
+
+4. Justificativas Tecnológicas
+
+Proxy F5: segurança perimetral, WAF, SSL offload, balanceamento de carga inteligente. Suporte corporativo robusto e integração com autenticação.
+
+Ory Hydra: solução moderna de autenticação com OAuth2/OpenID, permite geração de tokens JWT seguros e flexíveis.
+
+SQL Server on-prem: banco já estabelecido, com dados históricos e integração com sistemas legados.
+
+ECS Fargate: zero gerenciamento de cluster, autoescalável e bem adaptado a microsserviços REST.
+
+Amazon RDS: banco gerenciado, backups automáticos, replicação Multi-AZ, alta disponibilidade garantida.
+
+Amazon S3: durabilidade de 99.999999999%, acessível por API, ideal para armazenar os relatórios consolidados de forma segura.
+
+Direct Connect: link dedicado e criptografado entre on-premises e AWS, com baixa latência.
+
+CloudWatch + Dynatrace: combinação que cobre logs, métricas e rastreamento ponta a ponta.
+
+
+
+---
+
+5. Estratégia de Automação
+
+Terraform:
+
+Criação de ECS, API Gateway, RDS, S3, roles IAM, etc.
+
+Armazenamento remoto no S3 + controle de estado com DynamoDB
+
+
+Ansible:
+
+Scripts para configuração inicial dos servidores on-premises
+
+Configuração do ORY Hydra, deploy dos containers
+
+
+Tudo hospedado em um repositório público no GitHub, com documentação em arquivos .md.
+
+
+
+---
+
+6. Disaster Recovery (DR)
+
+On-premises:
+
+Backup diário do SQL Server em storage local e sincronizado via VPN/S3
+
+RTO: 2 horas | RPO: 15 minutos
+
+
+AWS:
+
+RDS Multi-AZ com failover automático
+
+S3 com versionamento
+
+ECS recriável via IaC em minutos
+
+RTO: 15 minutos | RPO: 5 minutos
+
+
+
+
+---
+
+7. Monitoramento e Observabilidade
+
+Camada de Rede (Modelo OSI Camadas 3 e 4):
+
+VPC Flow Logs (AWS)
+
+Logs de tráfego no F5
+
+CloudWatch Metrics + Dynatrace para latência, requisições, falhas
+
+
+Camada de Aplicação (Camada 7):
+
+Dynatrace para rastreamento completo da jornada do usuário
+
+Alarmes por anomalias de comportamento
+
+Tracing via OpenTelemetry nas APIs
+
+
+
+
+---
+
+8. Modelo OSI e Segurança
+
+Camada 1–2: Garantidas por links dedicados e equipamentos físicos.
+
+Camada 3–4: TLS 1.2+ em todo o tráfego, com monitoramento.
+
+Camada 5–7:
+
+Autenticação via ORY Hydra (Camada 5)
+
+APIs com controle de escopo e JWT (Camada 6/7)
+
+WAF no F5 (Camada 7)
+
+
+
+
+---
+
+9. Requisitos Não Funcionais
+
+Alta disponibilidade dos microserviços: ECS + RDS Multi-AZ
+
+Independência dos fluxos: Se o serviço de consolidação cair, o controle de lançamento continua operante
+
+Carga de 50 RPS com até 5% de perda:
+
+Validado em stress tests com autoscaling de ECS + tuning de banco
