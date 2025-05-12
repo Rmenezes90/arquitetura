@@ -1,245 +1,106 @@
 
 
-ARQUITETURA DE INFRA - ON-PREMISES COM INTEGRAÇÃO AWS -(RUBENS DE MENEZES JUNIOR)
 
-1. Dimensionamento de Recursos
+Documentação Técnica – Arquitetura Híbrida XPTO
+
+## 1. Visão Geral da Arquitetura
+A arquitetura híbrida combina os recursos on-premises existentes com a escalabilidade da nuvem AWS. Essa estratégia preserva os investimentos legados enquanto incorpora automação, alta disponibilidade, segurança e controle de custos.
+## 2. Componentes On-Premises
+### 2.1 Proxy F5
+- Função: Proxy Reverso, WAF
+- Justificativa: Proteger o tráfego HTTP/S, inspecionar pacotes, prevenir ataques (ex: SQL Injection, DDOS)
+- Camadas OSI: 3 (Redes), 4 (Firewall) e 7 (HTTP/S)
+- Protocolo: TCP 443
+- Sistema Operacional: TMOS (F5 OS)
+### 2.2 Front-End (Apresentação)
+- VMs: Xptofront1210 até Xptofront1213
+- SO: Ubuntu 22.04 LTS
+- vCPU: 2 | RAM: 4 GB | Disco: 50 GB SSD
+- Função: Servidores Web (Nginx ou Apache) que fazem o frontend da aplicação legado
+- Justificativa: Interface com usuários internos e externos com alta disponibilidade (4 instâncias)
+### 2.3 Back-End (Aplicação)
+- VMs: xptoback2223 até xptoback2226
+- SO: Ubuntu 22.04 + Docker
+- vCPU: 2 | RAM: 4 GB | Disco: 100 GB SSD
+- Função: Lógica da aplicação principal (controle de lançamentos e consolidados)
+- Justificativa: Mantém proximidade com o banco legado para baixa latência, separando o Back-end do Front-end ele fica seguro de acessos não autorizados, alta disponibilidade (4 instâncias)
+
+### 2.4 Banco de Dados SQL Server
+- VMs: xptodbsql33 até xptodbsql36
+- SO: Windows Server 2022 | SQL Server 2019
+- vCPU: 8 | RAM: 32 GB | Disco: 700 GB (RAID10)
+- Função: Armazenamento de Dados
+- Justificativa: Alta disponibilidade local, replicação entre instâncias, utilizado para sistemas legados, alta disponibilidade (4 instâncias)
+### 2.5 ORY Hydra (Identidade)
+- VM: xptoident44 / xptoident45
+- SO: Ubuntu 22.04
+- vCPU: 2 | RAM: 4 GB | Disco: 30 GB
+- Função: OpenID Connect Server (Autenticação federada para serviços legados e cloud)
+- Justificativa: Controle de identidade centralizado, SSO para aplicações internas
+### 2.6 Dynatrace
+- Função: APM e rastreamento de performance de ponta a ponta
+- Justificativa: Observabilidade e métricas completas (camadas on-premises e cloud)
+## 3. Componentes em Cloud AWS
+### 3.1 VPCs e Subnets
+- Redes hub e corporativa isoladas por subnets públicas e privadas
+- Duas VPCs: xwsspto-xpto-sao-hubint (rede hub) e xwsspto-xpto-sao-corp (corporativo)
+- Sub-redes privadas 
+- Justificativa: Isolamento de tráfego, controle granular de ACLs e rotas
+### 3.2 Transit Gateway
+- Função: Ponto central para o tráfego de rede, conectando VPCs e redes locais por meio de um único gateway. 
+- Justificativa: Roteamento centralizado, baixo tempo de resposta, escalável para múltiplas VPCs
+### 3.3 API Gateway
+- Função: Exposição de serviços REST da aplicação na AWS
+- Justificativa: Escalável, seguro, com throttle e autenticação embutida
+### 3.4 ECS (Fargate)
+- Função: Containers controle de lançamentos e Consolidação diária
+- vCPU (por container): 1 vCPU (controle), 0.5 vCPU (consolidação)
+- RAM: 2 GB e 1 GB, respectivamente
+Justificativa: Não requer gerenciamento de servidores diminuindo a sobrecarga operacional, auto-escalável, integração com CloudWatch
+
+### 3.5 SQS
+- Função: Serviço de fila de mensagens 
+Justificativa: Permite que os componentes de um sistema se comuniquem sem dependências diretas, aumentando a flexibilidade e a escalabilidade.
+### 3.6 Amazon RDS
+Função: Banco de dados MySQL
+- Instância: db.t3.medium | vCPU: 2 | RAM: 4 GB | Disco: 100 GB SSD
+- Justificativa: Alta disponibilidade nativa, backups automáticos, compatibilidade com microsserviços
+### 3.7 S3
+- Função: Armazenamento de arquivos estáticos, logs 
+Versionamento: Ciclo de vida (move para Glacier após 90 dias)
+Criptografia SSE
+Justificativa: Alta durabilidade, baixo custo, integração com RDS, ECS, backups
+### 3.8 Segurança
+- GuardDuty, AWS Config, CloudTrail, Shield, IAM: Compliance e detecção de ameaças, princípio de menor privilégio
+- SGs e NACLs: Regras específicas por porta e subnet
+- WAF + Shield: Proteção L7 e mitigação DDoS
+### 3.9 Monitoramento
+- CloudWatch: Logs, Metrics
+### 4 Automação
+- Terraform: Infraestrutura cloud - Modularização por ambientes, provisionamento de ECS, RDS, API Gateway, S3, etc.
+- **Ansible**: Configuração on-prem
+- **GitHub**: CI/CD e versionamento
+## 5. Estratégia FinOps
+- Auto-escalonamento no ECS e API Gateway
+- S3 com ciclo de vida para otimização de armazenamento
+- Uso de instâncias sob demanda e Reserved Instances no RDS
+- CloudWatch Alarms para orçamentos
+- Análise com Cost Explorer e relatórios periódicos
+## 6. Disaster Recovery (DR)
+- RDS Multi-AZ
+- Backups diários automatizados
+- S3 replicado entre regiões
+- Infraestrutura reconstituível via Terraform
+- RTO: 30 minutos | RPO: 5 minutos
+
+
+## 7. Modelo OSI Aplicado
+- Camada 7: WAF, ORY Hydra, API Gateway
+- Camada 6: TLS (S3, RDS, API Gateway)
+- Camada 4: SGs/NACLs
+- Camada 3: VPC, rotas, TGW
+- Camada 1–2: Direct Connect, switches físicos on-prem
+
 
-On-Premises
-
-Web Server (Front-End) - 4 máquinas
-
-CPU: 8 vCPU (Intel Xeon ou AMD EPYC equivalentes)
-
-Memória: 32 GB RAM
-
-Armazenamento: 200 GB SSD local
-
-Sistema Operacional: Windows Server 2019
-
-
-Aplicação (Back-End) - 4 máquinas
-
-CPU: 16 vCPU
-
-Memória: 64 GB RAM
-
-Armazenamento: 500 GB SSD local (logs + arquivos temporários)
-
-Sistema Operacional: Windows Server 2019
-
-Justificativa: Processamento de lógicas de negócio pesadas, chamadas à API, integração com microsserviços e banco local.
-
-
-Banco de Dados SQL Server
-
-CPU: 16 vCPU
-
-Memória: 128 GB RAM
-
-Armazenamento: 2 TB SSD local + redundância (RAID)
-
-Justificativa: Armazena dados críticos da operação com alta frequência de leitura/escrita.
-
-
-
-AWS – Microsserviços
-
-Amazon ECS (Fargate) – APIs xpto-api-controle-lancamento e xpto-api-consolidado
-
-Task Definition:
-
-CPU: 1024 units (1 vCPU)
-
-Memory: 2048 MiB (2 GB)
-
-Storage: S3 para saída de dados + logs em CloudWatch
-
-
-Justificativa: Isolamento, escalabilidade e simplicidade sem precisar gerenciar servidores.
-
-
-Amazon RDS (MySQL)
-
-Tipo: db.m6i.large
-
-CPU: 2 vCPU
-
-RAM: 8 GB
-
-Armazenamento: 100 GB SSD (gp3), IOPS provisionado
-
-
-Justificativa: Banco dedicado para dados de microserviços com alta disponibilidade (Multi-AZ)
-
-
-Amazon S3
-
-Armazenamento de arquivos consolidados
-
-Classe: S3 Standard + versionamento + criptografia SSE-S3
-
-
-
-
----
-
-2. Metodologia de FinOps
-
-On-premises: uso de licenças corporativas (Windows, SQL Server), hardware já amortizado.
-
-AWS:
-
-ECS Fargate: pago por uso, ideal para workloads irregulares.
-
-RDS e S3:
-
-Monitoramento via CloudWatch para desligar instâncias subutilizadas.
-
-Alerts para gastos via AWS Budgets.
-
-Uso de tags para rastreamento por projeto/time.
-
-Custo otimizado com reserva de instância RDS se padrão for identificado.
-
-
-
-Relatórios semanais em Dynatrace (ou CloudWatch + Cost Explorer) para análise contínua.
-
-
-
----
-
-3. Diagrama de Topologia
-
-Já fornecido por você. Para documentação, sugerimos redesenhar usando Lucidchart, Draw.io ou Diagrams.net com:
-
-Blocos distintos para: DMZ, Aplicação, Autenticação, Microsserviços, RDS, S3
-
-Cores diferentes para recursos on-premises e AWS
-
-Indicação clara de conexões TCP, VPC, Direct Connect e ALB
-
-
-
----
-
-4. Justificativas Tecnológicas
-
-Proxy F5: segurança perimetral, WAF, SSL offload, balanceamento de carga inteligente. Suporte corporativo robusto e integração com autenticação.
-
-Ory Hydra: solução moderna de autenticação com OAuth2/OpenID, permite geração de tokens JWT seguros e flexíveis.
-
-SQL Server on-prem: banco já estabelecido, com dados históricos e integração com sistemas legados.
-
-ECS Fargate: zero gerenciamento de cluster, autoescalável e bem adaptado a microsserviços REST.
-
-Amazon RDS: banco gerenciado, backups automáticos, replicação Multi-AZ, alta disponibilidade garantida.
-
-Amazon S3: durabilidade de 99.999999999%, acessível por API, ideal para armazenar os relatórios consolidados de forma segura.
-
-Direct Connect: link dedicado e criptografado entre on-premises e AWS, com baixa latência.
-
-CloudWatch + Dynatrace: combinação que cobre logs, métricas e rastreamento ponta a ponta.
-
-
-
----
-
-5. Estratégia de Automação
-
-Terraform:
-
-Criação de ECS, API Gateway, RDS, S3, roles IAM, etc.
-
-Armazenamento remoto no S3 + controle de estado com DynamoDB
-
-
-Ansible:
-
-Scripts para configuração inicial dos servidores on-premises
-
-Configuração do ORY Hydra, deploy dos containers
-
-
-Tudo hospedado em um repositório público no GitHub, com documentação em arquivos .md.
-
-
-
----
-
-6. Disaster Recovery (DR)
-
-On-premises:
-
-Backup diário do SQL Server em storage local e sincronizado via VPN/S3
-
-RTO: 2 horas | RPO: 15 minutos
-
-
-AWS:
-
-RDS Multi-AZ com failover automático
-
-S3 com versionamento
-
-ECS recriável via IaC em minutos
-
-RTO: 15 minutos | RPO: 5 minutos
-
-
-
-
----
-
-7. Monitoramento e Observabilidade
-
-Camada de Rede (Modelo OSI Camadas 3 e 4):
-
-VPC Flow Logs (AWS)
-
-Logs de tráfego no F5
-
-CloudWatch Metrics + Dynatrace para latência, requisições, falhas
-
-
-Camada de Aplicação (Camada 7):
-
-Dynatrace para rastreamento completo da jornada do usuário
-
-Alarmes por anomalias de comportamento
-
-Tracing via OpenTelemetry nas APIs
-
-
-
-
----
-
-8. Modelo OSI e Segurança
-
-Camada 1–2: Garantidas por links dedicados e equipamentos físicos.
-
-Camada 3–4: TLS 1.2+ em todo o tráfego, com monitoramento.
-
-Camada 5–7:
-
-Autenticação via ORY Hydra (Camada 5)
-
-APIs com controle de escopo e JWT (Camada 6/7)
-
-WAF no F5 (Camada 7)
-
-
-
-
----
-
-9. Requisitos Não Funcionais
-
-Alta disponibilidade dos microserviços: ECS + RDS Multi-AZ
-
-Independência dos fluxos: Se o serviço de consolidação cair, o controle de lançamento continua operante
-
-Carga de 50 RPS com até 5% de perda:
-
-Validado em stress tests com autoscaling de ECS + tuning de banco
+## 8. Conclusão
+- A arquitetura proposta garante uma transição segura e estratégica da XPTO para a nuvem, mantendo o legado com alta performance e preparando a empresa para escalabilidade futura, redução de custos, observabilidade avançada, e resiliência corporativa.
